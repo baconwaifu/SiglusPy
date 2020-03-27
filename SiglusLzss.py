@@ -99,3 +99,15 @@ def decompress_8(buf, outbuf, decomplen, stoppixel=0):
     except struct.error:
       return (stoppixel, blockp) #return the recorded state with the number of bytes consumed
     return (stoppixel, -1)
+
+def compress_24(buf):
+    #this isn't exactly "compression" but it abuses the format enough for the engine to pick it up...
+    #takes a flat ***BGR*** image. *NOT* BGRA. CONVERT IT FIRST.
+    #also, this does *not* include the compression header.
+    out = b''
+    count = 0
+    while count < len(buf):
+      b += [0xff]
+      b += buf[count:count+(8*3)]
+      count += (8*3)
+    return out
