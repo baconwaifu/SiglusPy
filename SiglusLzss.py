@@ -1,11 +1,26 @@
 import struct
 
-def decompress_24(buf, decomplen):
-    outbuf = bytearray(decomplen)
-    outcount = 0
+try:
+  import lzss #use this if it's available for the byte-level lzss; it's faster than the "pure" implementation below
+  lzflag = True
+except ImportError:
+  lzflag = False
+
+#tweaked lzss that operates on pixels instead of bytes. file pixels are 24 bits BGR, memory pixels are 32-bit BGRA (assumed opaque)
+#stoppixel is intended as a crude "roll back to start of block" function. index 0 of the buffer should be the returned index from the last call.
+#unfortunately, it doesn't work properly. might decide to calculate the length of a given block on the fly and only process it if it's complete
+def decompress_24(buf, outbuf, decomplen, stoppixel=0):
+    outcount = stoppixel
     count = 0
-    while outcount < decomplen:
+    blockp = 0
+    try:
+     if (outcount >= decomplen):
+       print ("Done!")
+       return (stoppixel,-1)
+     while outcount < decomplen:
 #      print(decomplen,outcount)
+      blockp = count
+      stoppixel = outcount
       tagmask = buf[count] #get a block of 8 items
       count += 1
       tagcount = 0x8
@@ -21,8 +36,8 @@ def decompress_24(buf, decomplen):
           seekback = struct.unpack("<H",buf[count:count+2])[0] #seekback; could probably speed this step up by doing manual conversion...
           count += 2
           seqlen = seekback
-          seekback = seekback >> 4
-          seekback = seekback << 2 #divide by two and clamp to a multiple of datum size
+          seekback = seekback >> 4 #strip off the 4-bit sequence length to get the 12-bit "walk-back" distance (in pixels)
+          seekback = seekback << 2  #multiply by pixel size to get walk-back in bytes
           seqlen &= 0xf
           seqlen += 1
           backseek = outcount
@@ -36,5 +51,51 @@ def decompress_24(buf, decomplen):
               backseek += 1
         tagmask = tagmask >> 1 #get next bit in the mask
         tagcount -= 1
-    return outbuf
+    except (IndexError, struct.error):
+      print ("Incomplete Block")
+      return (stoppixel, blockp) #this means the block is done for now...
+    stoppixel = outcount
+    blockp = count
+    print ("Decompressed")
+    return (stoppixel, blockp) #we're done, but it needs one more pass before echoing -1
 
+#standard byte-level lzss?
+def decompress_8(buf, outbuf, decomplen, stoppixel=0):
+    #can't use the lzss library, no support for partial decode as far as I can tell, which is practically required for PIL plugins.
+    outcount = stoppixel
+    count = 0
+    blockp = 0
+    try:
+     while outcount < decomplen:
+#      print(decomplen,outcount)
+      blockp = count
+      tagmask = buf[count] #get a block of 8 items
+      count += 1
+      tagcount = 0x8
+      while outcount < decomplen and tagcount > 0:
+        if (tagmask % 2) == 0x01: #is literal? append.
+          outbuf[outcount] = buf[count]
+          count += 1
+          outcount += 1
+        else: #is sequence; fish it out and play it back
+          seekback = struct.unpack("<H",buf[count:count+2])[0] #seekback; could probably speed this step up by doing manual conversion...
+          count += 2
+          seqlen = seekback
+          seekback = seekback >> 4 #strip the sequence length to get a 12-bit walkback (in bytes)
+          seqlen &= 0xf
+          seqlen += 2 #minimum byte sequence is 2 bytes, to avoid the tag taking more space than the sequence...
+          backseek = outcount
+          backseek -= seekback
+          while (seqlen > 0):
+            seqlen -= 1
+#            print(tmpcount,hold)
+            outbuf[outcount] = outbuf[backseek]
+            outcount += 1
+            backseek += 1
+        tagmask = tagmask >> 1 #get next bit in the mask
+        tagcount -= 1
+    except (IndexError) as e: #incomplete block (or malformed stream...)
+      return (stoppixel, blockp)
+    except struct.error:
+      return (stoppixel, blockp) #return the recorded state with the number of bytes consumed
+    return (stoppixel, -1)

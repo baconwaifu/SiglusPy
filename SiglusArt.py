@@ -1,8 +1,9 @@
 import sys
 import io
 import struct
-from PIL import Image
+from PIL import Image, ImageFile
 import SiglusLzss as siglz
+import SiglusImage
 
 #We use pillow to convert the decoded raw bitmap to PNG/BMP
 
@@ -16,29 +17,21 @@ if len(sys.argv) < 2:
   print ("Usage:",sys.argv[0],"<infile>")
   sys.exit(1)
 
-infile = open(sys.argv[1],'rb')
+new = False
 
-type = infile.read(1)[0] #is a byte. not exactly much to process here...
-width = struct.unpack("<H",infile.read(2))[0]
-height = struct.unpack("<H",infile.read(2))[0]
-
-if (type == 0):
-    #we're a 24-bit image
-    complen = struct.unpack("<I", infile.read(4))[0]
-    decomplen = struct.unpack("<I", infile.read(4))[0]
-    if (complen > decomplen):
-        print("WTF: Compressed file length is more the the decompressed?")
-        sys.exit()
-    #decomp = lzss.decode(infile.read(complen))
-    decomp = siglz.decompress_24(infile.read(complen), decomplen) #not standard lzss?
-    if (len(decomp) != decomplen):
-        print("WARN: Decompressed", "more" if len(decomp) > decomplen else "less","data than expected!")
-    #SiglusExtract appears to flip the image from RGBA to BGRA (or maybe vertical flip? can barely read it...) but pillow can use it directly.
-    img = Image.frombytes("RGBA",[width,height],bytes(decomp),"raw","BGRA")
-    img.show()
-if (type == 1):
-    pass #not done yet...
-    #8-bit!
-if (type == 2):
-    pass
-    #A directory. recursion time!
+if new:
+  ImageFile.LOAD_TRUNCATED_IMAGES = True
+  #decoder implemented in the PIL plugin SiglusImage
+  img = Image.open(sys.argv[1])
+  img.show()
+else:
+  #manual decoder
+  infile = open(sys.argv[1],'rb')
+  type = infile.read(1)[0] #is a byte. not exactly much to process here...
+  width = struct.unpack("<H",infile.read(2))[0]
+  height = struct.unpack("<H",infile.read(2))[0]
+  complen, decomplen = struct.unpack("<II", infile.read(8))
+  decomp = bytearray(decomplen) 
+  siglz.decompress_24(infile.read(complen), decomp, decomplen)
+  img = Image.frombytes("RGBA", [width,height], bytes(decomp), "raw" , "BGRA")
+  img.show()
