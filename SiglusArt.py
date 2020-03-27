@@ -17,7 +17,7 @@ if len(sys.argv) < 2:
   print ("Usage:",sys.argv[0],"<infile>")
   sys.exit(1)
 
-new = False
+new = True
 
 if new:
   ImageFile.LOAD_TRUNCATED_IMAGES = True

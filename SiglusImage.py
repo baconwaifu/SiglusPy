@@ -27,21 +27,26 @@ class SiglusImageDecode(ImageFile.PyDecoder):
     def init(self, args):
       self.mode = args[0]
       self.start = True
+      self._pulls_fd = True
     def decode(self, buffer):
+      if not self.fd:
+        print("ERROR: pulls_fd isn't working!")
       if self.start: #this is the first time we have access to the buffer...
-        self.complen, self.decomplen = struct.unpack("<II", buffer[0:8]) #we don't care about compressed length anymore; just go till we have all the data.
-        print(self.complen)
-        print(self.decomplen)
+        self.complen, self.decomplen = struct.unpack("<II", self.fd.read(8)) #we don't care about compressed length anymore; just go till we have all the data.
+#        print(self.complen)
+#        print(self.decomplen)
         self.total = 0
         self.decbuf = bytearray(self.decomplen) #we keep our own state here; the math to convert pixel coords to buffer index would slow things down
-        self.buf = b''
-        buf += buffer[8:]
+#        self.buf = b''
+#        self.buf += buffer[8:]
         self.start = False
-      else:
-        buf += buffer
-      return (len(buf),0)
-    def cleanup(self): #a cheeky hack; chunked decompression is currently broken in an unexplainable manner. need to do more testing.
-      buffer = self.buf
+#      else:
+#        self.buf += buffer
+#      return (len(self.buf),0)
+#    def cleanup(self): #a cheeky hack; chunked decompression is currently broken in an unexplainable manner. need to do more testing.
+#      buffer = self.buf
+      buffer = self.fd.read(self.complen)
+      self.stoppx = 0
       if self.mode == "RGBA":
         if self.start:
           self.stoppx, consumed = siglz.decompress_24(buffer[8:], self.decbuf, self.decomplen) #strip the header if we're just starting out
@@ -56,8 +61,8 @@ class SiglusImageDecode(ImageFile.PyDecoder):
         self.start = False
       self.total += consumed
 #      print ("consumed",consumed,"bytes out of",len(buffer),"for a total of",self.total,"bytes consumed")
-#      return (consumed, 0)
-#    def cleanup(self):
+      return (consumed, 0)
+    def cleanup(self):
       self.set_as_raw(bytes(self.decbuf), "BGRA") #we're decompressed, so shit out the image!
 #be careful with this; it does some quick sanity checks, but g00 has no magic.
 class SiglusImageFile(ImageFile.ImageFile):
